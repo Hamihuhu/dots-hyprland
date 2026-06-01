@@ -1,6 +1,7 @@
 import qs.modules.common
 import qs.modules.common.widgets
 import qs.services
+import qs.modules.ii.sidebarRight.calendar
 import QtQuick
 import QtQuick.Layouts
 
@@ -66,5 +67,7 @@ StyledPopup {
                 text: root.todosSection
             }
         }
+
+        CalendarWidget {}
     }
 }

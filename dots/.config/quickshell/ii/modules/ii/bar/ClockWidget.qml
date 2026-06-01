@@ -1,6 +1,7 @@
 import qs.modules.common
 import qs.modules.common.widgets
 import qs.services
+import qs
 import QtQuick
 import QtQuick.Layouts
 
@@ -40,9 +41,15 @@ Item {
     MouseArea {
         id: mouseArea
         anchors.fill: parent
-        hoverEnabled: !Config.options.bar.tooltips.clickToShow
+        acceptedButtons: Qt.LeftButton
+        onPressed: (event) => {
+            if (event.button === Qt.LeftButton) {
+                GlobalStates.clockOpen = !GlobalStates.clockOpen;
+            }
+        }
 
         ClockWidgetPopup {
+            active: GlobalStates.clockOpen
             hoverTarget: mouseArea
         }
     }
