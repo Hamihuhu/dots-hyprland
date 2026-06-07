@@ -1,0 +1,255 @@
+#!/usr/bin/env bash
+# conjure: Syncs configs from dots/ in this repo out to their live locations.
+# The reverse of siphon.
+#
+# Usage:
+#   ./conjure                          # show help
+#   ./conjure divine [section ...]     # preview what would change (no files touched)
+#   ./conjure cast   [section ...]     # actually perform the sync
+#
+# Sections: misc konsole quickshell fish fontconfig hyprland icons extra
+# If no sections are given, all sections are synced.
+
+set -euo pipefail
+
+#####################################################################################
+# FILES TO IGNORE
+# Paths relative to their respective source directories.
+# Uses rsync exclude syntax (e.g. "monitors.conf", "subdir/file.conf")
+IGNORED_FILES=(
+  # Add files here, e.g.:
+  # "monitors.conf"
+)
+
+#####################################################################################
+
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+#####################################################################################
+# Arg parsing
+
+SUBCMD="${1:-}"
+shift || true
+
+case "$SUBCMD" in
+  divine|cast) ;;
+  ""|help|--help|-h)
+    echo "Usage: ./conjure <divine|cast> [section ...]"
+    echo ""
+    echo "  divine   Preview what would be synced (repo -> live), no changes made"
+    echo "  cast     Execute the sync (repo -> live)"
+    echo ""
+    echo "Sections:"
+    echo "  misc        Misc .config dirs and files"
+    echo "  konsole     Konsole data"
+    echo "  quickshell  Quickshell config"
+    echo "  fish        Fish shell config"
+    echo "  fontconfig  Fontconfig"
+    echo "  hyprland    All Hyprland config (core, custom, single files)"
+    echo "  icons       Icon file"
+    echo "  extra       Extra mappings from sync-extra.conf"
+    echo ""
+    echo "Examples:"
+    echo "  ./conjure divine                  # preview everything"
+    echo "  ./conjure cast                    # sync everything"
+    echo "  ./conjure divine quickshell       # preview quickshell only"
+    echo "  ./conjure cast hyprland fish      # sync hyprland and fish"
+    exit 0
+    ;;
+  *)
+    echo "Error: unknown subcommand '$SUBCMD'. Use: divine, cast" >&2
+    echo "Run './conjure help' for usage." >&2
+    exit 1
+    ;;
+esac
+
+DRY_RUN=false
+[[ "$SUBCMD" == "divine" ]] && DRY_RUN=true
+
+# Remaining args are section names
+SECTIONS=("$@")
+if [[ ${#SECTIONS[@]} -eq 0 ]]; then
+  SECTIONS=(misc konsole quickshell fish fontconfig hyprland icons extra)
+fi
+
+should_run() { [[ " ${SECTIONS[*]} " == *" $1 "* ]]; }
+
+#####################################################################################
+# rsync options
+
+exclude_args=()
+for f in "${IGNORED_FILES[@]}"; do
+  exclude_args+=(--exclude "$f")
+done
+
+rsync_opts=(-a --delete --out-format='%i %n' "${exclude_args[@]}")
+$DRY_RUN && rsync_opts+=(--dry-run)
+
+run_rsync() {
+  local src="$1"
+  local dest="$2"
+  echo "  [sync] $src -> $dest"
+  rsync "${rsync_opts[@]}" "$src"/ "$dest"/
+}
+
+run_rsync_exclude() {
+  local src="$1"
+  local dest="$2"
+  shift 2
+  local extra_excludes=()
+  for p in "$@"; do
+    extra_excludes+=(--exclude "$p")
+  done
+  echo "  [sync] $src -> $dest (excluding: $*)"
+  rsync "${rsync_opts[@]}" "${extra_excludes[@]}" "$src"/ "$dest"/
+}
+
+cp_file() {
+  local src="$1"
+  local dest="$2"
+  echo "  [copy] $src -> $dest"
+  if $DRY_RUN; then
+    if [[ -f "$dest" ]]; then
+      diff --brief "$src" "$dest" || true
+    else
+      echo "         (destination does not exist yet, would be created)"
+    fi
+  else
+    cp -f "$src" "$dest"
+  fi
+}
+
+#####################################################################################
+
+if $DRY_RUN; then
+  echo "=== DIVINE — no changes will be made. Run './conjure cast' to sync. ==="
+else
+  echo "=== CAST — conjuring repo -> live ==="
+fi
+echo ""
+
+cd "$REPO_ROOT"
+
+warnings=()
+
+#####################################################################################
+# Sections
+
+if should_run misc; then
+  echo "[misc .config]"
+  for i in $(find dots/.config/ -mindepth 1 -maxdepth 1 \
+      ! -name 'quickshell' \
+      ! -name 'fish' \
+      ! -name 'hypr' \
+      ! -name 'fontconfig' \
+      -exec basename {} \;); do
+    src="$REPO_ROOT/dots/.config/$i"
+    dest="$XDG_CONFIG_HOME/$i"
+    if [[ -d "$src" ]]; then
+      run_rsync "$src" "$dest"
+    elif [[ -f "$src" ]]; then
+      cp_file "$src" "$dest"
+    fi
+  done
+  echo ""
+fi
+
+if should_run konsole; then
+  echo "[konsole]"
+  run_rsync "$REPO_ROOT/dots/.local/share/konsole" "$XDG_DATA_HOME/konsole"
+  echo ""
+fi
+
+if should_run quickshell; then
+  echo "[quickshell]"
+  run_rsync "$REPO_ROOT/dots/.config/quickshell" "$XDG_CONFIG_HOME/quickshell"
+  echo ""
+fi
+
+if should_run fish; then
+  echo "[fish]"
+  run_rsync_exclude "$REPO_ROOT/dots/.config/fish" "$XDG_CONFIG_HOME/fish" "conf.d"
+  echo ""
+  echo "[fish/conf.d]"
+  run_rsync "$REPO_ROOT/dots/.config/fish/conf.d" "$XDG_CONFIG_HOME/fish/conf.d"
+  echo ""
+fi
+
+if should_run fontconfig; then
+  echo "[fontconfig]"
+  run_rsync "$REPO_ROOT/dots/.config/fontconfig" "$XDG_CONFIG_HOME/fontconfig"
+  echo ""
+fi
+
+if should_run hyprland; then
+  echo "[hypr/hyprland]"
+  run_rsync "$REPO_ROOT/dots/.config/hypr/hyprland" "$XDG_CONFIG_HOME/hypr/hyprland"
+  echo ""
+  echo "[hypr/custom]"
+  run_rsync "$REPO_ROOT/dots/.config/hypr/custom" "$XDG_CONFIG_HOME/hypr/custom"
+  echo ""
+  echo "[hypr single files]"
+  for i in hyprlock.conf hyprland.lua hypridle.conf; do
+    cp_file "$REPO_ROOT/dots/.config/hypr/$i" "$XDG_CONFIG_HOME/hypr/$i"
+  done
+  echo ""
+fi
+
+if should_run icons; then
+  echo "[icons]"
+  cp_file "$REPO_ROOT/dots/.local/share/icons/illogical-impulse.svg" \
+          "$XDG_DATA_HOME/icons/illogical-impulse.svg"
+  echo ""
+fi
+
+if should_run extra; then
+  if [[ -f "$REPO_ROOT/sync-extra.conf" ]]; then
+    echo "[extra]"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      # Skip comments and blank lines
+      [[ "$line" =~ ^[[:space:]]*# ]] && continue
+      [[ -z "${line//[[:space:]]/}" ]] && continue
+      # Parse: src -> dest
+      if [[ "$line" =~ ^[[:space:]]*(.+)[[:space:]]*-\>[[:space:]]*(.+)[[:space:]]*$ ]]; then
+        src="${BASH_REMATCH[1]}"
+        dest="${BASH_REMATCH[2]}"
+        # Trim trailing whitespace
+        src="${src%"${src##*[![:space:]]}"}"
+        dest="${dest%"${dest##*[![:space:]]}"}"
+        # Expand ~ and environment variables
+        src="${src/#\~/$HOME}"
+        src=$(eval echo "$src")
+        dest="${dest/#\~/$HOME}"
+        dest=$(eval echo "$dest")
+        # conjure: src -> dest
+        if [[ ! -d "$dest" ]]; then
+          warnings+=("skipped (dest not found): $dest")
+          continue
+        fi
+        run_rsync "$src" "$dest"
+      else
+        warnings+=("skipped (bad format): $line")
+      fi
+    done < "$REPO_ROOT/sync-extra.conf"
+    echo ""
+  fi
+fi
+
+#####################################################################################
+# Footer
+
+if $DRY_RUN; then
+  echo "=== End of divine. Run './conjure cast' to sync. ==="
+else
+  echo "=== Done. ==="
+fi
+
+if [[ ${#warnings[@]} -gt 0 ]]; then
+  echo ""
+  echo "=== Warnings ==="
+  for w in "${warnings[@]}"; do
+    echo "  $w"
+  done
+fi

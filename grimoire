@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# grimoire: Opens sync-extra.conf in your default editor.
+# Edit this file to add extra sync mappings for conjure and siphon.
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+CONF="$REPO_ROOT/sync-extra.conf"
+
+editor="${EDITOR:-${VISUAL:-xdg-open}}"
+exec "$editor" "$CONF"
