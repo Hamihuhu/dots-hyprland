@@ -79,8 +79,9 @@ local unity_popup_titles = {
     "^(Recovering Scene Backups:).*",
     "^(Cannot restructure Prefab instance).*",
     "^(The open scene(s) have been modified externally).*",
-    "^(Scene(s) Have Been Modified).*",
+    ".*(Have Been Modified).*",
     "^(Delete).*",
+    ".*(Discard).*",
 }
 
 for _, t in ipairs(unity_popup_titles) do

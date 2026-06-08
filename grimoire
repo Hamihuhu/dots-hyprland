@@ -1,11 +1,286 @@
 #!/usr/bin/env bash
-# grimoire: Opens sync-extra.conf in your default editor.
-# Edit this file to add extra sync mappings for conjure and siphon.
+# grimoire: Dotfile sync tool.
+#
+# Usage:
+#   ./grimoire invoke   [--glance] [--scry] [section ...]  # deploy repo -> live
+#   ./grimoire scribe   [--glance] [--scry] [section ...]  # collect live -> repo
+#   ./grimoire inscribe                                     # edit grimoire.conf
+#
+# Sections and mappings are defined in grimoire.conf.
+# If no sections are given, all sections are synced.
 
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
-CONF="$REPO_ROOT/sync-extra.conf"
+#####################################################################################
+# FILES TO IGNORE
+# Paths relative to their respective source directories.
+# Uses rsync exclude syntax (e.g. "monitors.conf", "subdir/file.conf")
+IGNORED_FILES=(
+    # Add files here, e.g.:
+    # "monitors.conf"
+)
 
-editor="${EDITOR:-${VISUAL:-xdg-open}}"
-exec "$editor" "$CONF"
+#####################################################################################
+
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+#####################################################################################
+# Arg parsing
+
+SUBCMD="${1:-}"
+shift || true
+
+case "$SUBCMD" in
+invoke | scribe) ;;
+inscribe)
+    editor="${EDITOR:-${VISUAL:-xdg-open}}"
+    exec "$editor" "$REPO_ROOT/grimoire.conf"
+    ;;
+"" | help | --help | -h)
+    echo "Usage: ./grimoire <invoke|scribe|inscribe> [--glance] [--scry] [section ...]"
+    echo ""
+    echo "  invoke      Deploy repo -> live system"
+    echo "  scribe      Collect live system -> repo"
+    echo "  inscribe    Edit grimoire.conf"
+    echo ""
+    echo "Flags:"
+    echo "  --glance    Preview what would change, no files touched"
+    echo "  --scry      Open diffs in your configured git difftool (implies --glance)"
+    echo ""
+    echo "Sections are defined in grimoire.conf. Run './grimoire inscribe' to edit."
+    echo ""
+    echo "Examples:"
+    echo "  ./grimoire invoke                       # deploy everything"
+    echo "  ./grimoire invoke --glance              # preview deploy"
+    echo "  ./grimoire invoke --scry                # preview with difftool"
+    echo "  ./grimoire scribe --glance quickshell   # preview quickshell collect"
+    echo "  ./grimoire scribe fish hyprland         # collect fish and hyprland"
+    echo "  ./grimoire inscribe                     # edit grimoire.conf"
+    exit 0
+    ;;
+*)
+    echo "Error: unknown subcommand '$SUBCMD'. Use: invoke, scribe, inscribe" >&2
+    echo "Run './grimoire help' for usage." >&2
+    exit 1
+    ;;
+esac
+
+# Parse flags and section names
+GLANCE=false
+SCRY=false
+SECTIONS=()
+for arg in "$@"; do
+    case "$arg" in
+    --glance) GLANCE=true ;;
+    --scry)
+        SCRY=true
+        GLANCE=true
+        ;;
+    *) SECTIONS+=("$arg") ;;
+    esac
+done
+
+# If no sections specified, run all
+should_run() { [[ ${#SECTIONS[@]} -eq 0 ]] || [[ " ${SECTIONS[*]} " == *" $1 "* ]]; }
+
+#####################################################################################
+# rsync options
+
+exclude_args=()
+for f in "${IGNORED_FILES[@]}"; do
+    exclude_args+=(--exclude "$f")
+done
+
+rsync_opts=(-a --delete --out-format='%i %n' "${exclude_args[@]}")
+
+do_diff() {
+    local a="$1"
+    local b="$2"
+    if $SCRY; then
+        git difftool -y --no-index -- "$a" "$b" || true
+    else
+        git diff --no-index -- "$a" "$b" || true
+    fi
+}
+
+run_rsync() {
+    local src="$1"
+    local dest="$2"
+    echo "  [sync] $src -> $dest"
+    if $GLANCE; then
+        if [[ -d "$dest" ]]; then
+            do_diff "$dest" "$src"
+        else
+            echo "         (destination does not exist yet, all files would be created)"
+        fi
+    else
+        rsync "${rsync_opts[@]}" "$src"/ "$dest"/
+    fi
+}
+
+run_rsync_exclude() {
+    local src="$1"
+    local dest="$2"
+    shift 2
+    local extra_excludes=()
+    for p in "$@"; do
+        extra_excludes+=(--exclude "$p")
+    done
+    echo "  [sync] $src -> $dest (excluding: $*)"
+    if $GLANCE; then
+        local changed
+        changed=$(rsync -a --delete --dry-run --out-format='%n' "${exclude_args[@]}" "${extra_excludes[@]}" "$src"/ "$dest"/ 2>/dev/null) || true
+        if [[ -n "$changed" ]]; then
+            while IFS= read -r f; do
+                [[ -z "$f" ]] && continue
+                if [[ -f "$src/$f" ]] && [[ -f "$dest/$f" ]]; then
+                    do_diff "$dest/$f" "$src/$f"
+                elif [[ -f "$src/$f" ]]; then
+                    echo "  [new] $dest/$f (would be created)"
+                else
+                    echo "  [del] $dest/$f (would be deleted)"
+                fi
+            done <<<"$changed"
+        else
+            echo "         (no changes)"
+        fi
+    else
+        rsync "${rsync_opts[@]}" "${extra_excludes[@]}" "$src"/ "$dest"/
+    fi
+}
+
+cp_file() {
+    local src="$1"
+    local dest="$2"
+    echo "  [copy] $src -> $dest"
+    if $GLANCE; then
+        if [[ -f "$dest" ]]; then
+            do_diff "$dest" "$src"
+        else
+            echo "         (destination does not exist yet, would be created)"
+        fi
+    else
+        cp -f "$src" "$dest"
+    fi
+}
+
+#####################################################################################
+# Header
+
+if $GLANCE; then
+    echo "=== ${SUBCMD^^} --glance — no changes will be made. Run './grimoire $SUBCMD' to sync. ==="
+elif [[ "$SUBCMD" == "invoke" ]]; then
+    echo "=== INVOKE — deploying repo -> live ==="
+else
+    echo "=== SCRIBE — collecting live -> repo ==="
+fi
+echo ""
+
+cd "$REPO_ROOT"
+
+warnings=()
+
+#####################################################################################
+# Read mappings from grimoire.conf
+
+current_section=""
+printed_section=""
+
+while IFS= read -r line || [[ -n "$line" ]]; do
+    # Skip comments and blank lines
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "${line//[[:space:]]/}" ]] && continue
+
+    # Section header
+    if [[ "$line" =~ ^[[:space:]]*\[([^\]]+)\][[:space:]]*$ ]]; then
+        current_section="${BASH_REMATCH[1]}"
+        continue
+    fi
+
+    # Skip if section not requested
+    should_run "$current_section" || continue
+
+    # Parse: left -> right [!exclude ...]
+    if [[ "$line" =~ ^[[:space:]]*(.+)[[:space:]]+-\>[[:space:]]+(.+)$ ]]; then
+        repo_side="${BASH_REMATCH[1]}"
+        right_side="${BASH_REMATCH[2]}"
+
+        # Trim trailing whitespace from repo_side
+        repo_side="${repo_side%"${repo_side##*[![:space:]]}"}"
+
+        # Split right_side into live_path and excludes (!token)
+        live_side=""
+        excludes=()
+        for token in $right_side; do
+            if [[ "$token" == !* ]]; then
+                excludes+=("${token#!}")
+            else
+                live_side="$token"
+            fi
+        done
+
+        # Expand repo_side: relative paths are relative to REPO_ROOT
+        if [[ "$repo_side" == /* ]] || [[ "$repo_side" == ~* ]] || [[ "$repo_side" == \$* ]]; then
+            repo_side="${repo_side/#\~/$HOME}"
+            repo_side=$(eval echo "$repo_side")
+        else
+            repo_side="$REPO_ROOT/$repo_side"
+        fi
+
+        # Expand live_side
+        live_side="${live_side/#\~/$HOME}"
+        live_side=$(eval echo "$live_side")
+
+        # Set src/dest based on direction
+        if [[ "$SUBCMD" == "invoke" ]]; then
+            src="$repo_side"
+            dest="$live_side"
+        else
+            src="$live_side"
+            dest="$repo_side"
+        fi
+
+        # Print section header on first entry in section
+        if [[ "$current_section" != "$printed_section" ]]; then
+            [[ -n "$printed_section" ]] && echo ""
+            echo "[$current_section]"
+            printed_section="$current_section"
+        fi
+
+        # Sync based on type (always checked against the repo side)
+        if [[ -d "$repo_side" ]]; then
+            if [[ ${#excludes[@]} -gt 0 ]]; then
+                run_rsync_exclude "$src" "$dest" "${excludes[@]}"
+            else
+                run_rsync "$src" "$dest"
+            fi
+        elif [[ -f "$repo_side" ]]; then
+            cp_file "$src" "$dest"
+        else
+            warnings+=("skipped (not found in repo): $repo_side")
+        fi
+    else
+        warnings+=("skipped (bad format): $line")
+    fi
+done <"$REPO_ROOT/grimoire.conf"
+
+[[ -n "$printed_section" ]] && echo ""
+
+#####################################################################################
+# Footer
+
+if $GLANCE; then
+    echo "=== End of glance. Run './grimoire $SUBCMD' to sync. ==="
+else
+    echo "=== Done. Review changes with: git diff --stat ==="
+fi
+
+if [[ ${#warnings[@]} -gt 0 ]]; then
+    echo ""
+    echo "=== Warnings ==="
+    for w in "${warnings[@]}"; do
+        echo "  $w"
+    done
+fi

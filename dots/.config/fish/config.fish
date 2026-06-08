@@ -36,5 +36,7 @@ if status is-interactive
 
     # opencode
     fish_add_path /home/hamihu/.opencode/bin
-end
 
+    # set the default editor
+    set -gx EDITOR nvim
+end
