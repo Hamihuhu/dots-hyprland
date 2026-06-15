@@ -17,7 +17,7 @@ set -euo pipefail
 # Uses rsync exclude syntax (e.g. "monitors.conf", "subdir/file.conf")
 IGNORED_FILES=(
     # Add files here, e.g.:
-    # "monitors.conf"
+    "monitors.lua"
 )
 
 #####################################################################################
@@ -95,6 +95,34 @@ done
 
 rsync_opts=(-a --delete --out-format='%i %n' "${exclude_args[@]}")
 
+section_had_entries=false
+section_had_changes=false
+section_header_printed=false
+
+emit_section_header() {
+    if ! $section_header_printed; then
+        echo "[$current_section]"
+        section_header_printed=true
+    fi
+}
+
+flush_section() {
+    [[ -z "$current_section" ]] && return 0
+    if ! $section_had_entries; then
+        return 0
+    fi
+
+    if $GLANCE; then
+        if ! $section_had_changes; then
+            echo "[$current_section] (no changes)"
+        fi
+    elif $section_header_printed; then
+        echo ""
+    fi
+
+    return 0
+}
+
 do_diff() {
     local a="$1"
     local b="$2"
@@ -106,62 +134,106 @@ do_diff() {
 }
 
 run_rsync() {
-    local src="$1"
-    local dest="$2"
-    echo "  [sync] $src -> $dest"
+    local label="$1"
+    local src="$2"
+    local dest="$3"
+    local changed=""
     if $GLANCE; then
         if [[ -d "$dest" ]]; then
-            do_diff "$dest" "$src"
+            changed=$(rsync -a --delete --dry-run --out-format='%n' "${exclude_args[@]}" "$src"/ "$dest"/ 2>/dev/null) || true
         else
-            echo "         (destination does not exist yet, all files would be created)"
+            changed="__create__"
+        fi
+    fi
+
+    if $GLANCE && [[ -z "$changed" ]]; then
+        return 0
+    fi
+
+    section_had_changes=true
+    emit_section_header
+
+    if $GLANCE; then
+        echo "  [sync] $label"
+        if [[ "$changed" == "__create__" ]]; then
+            echo "    [new] destination would be created"
+        else
+            do_diff "$dest" "$src"
         fi
     else
+        echo "  [sync] $src -> $dest"
         rsync "${rsync_opts[@]}" "$src"/ "$dest"/
     fi
 }
 
+ensure_parent_dir() {
+    local path="$1"
+    local parent
+    parent="$(dirname "$path")"
+    [[ "$parent" == "." ]] && return 0
+    mkdir -p "$parent"
+}
+
 run_rsync_exclude() {
-    local src="$1"
-    local dest="$2"
-    shift 2
+    local label="$1"
+    local src="$2"
+    local dest="$3"
+    shift 3
     local extra_excludes=()
     for p in "$@"; do
         extra_excludes+=(--exclude "$p")
     done
-    echo "  [sync] $src -> $dest (excluding: $*)"
+    local changed=""
     if $GLANCE; then
-        local changed
         changed=$(rsync -a --delete --dry-run --out-format='%n' "${exclude_args[@]}" "${extra_excludes[@]}" "$src"/ "$dest"/ 2>/dev/null) || true
-        if [[ -n "$changed" ]]; then
-            while IFS= read -r f; do
-                [[ -z "$f" ]] && continue
-                if [[ -f "$src/$f" ]] && [[ -f "$dest/$f" ]]; then
-                    do_diff "$dest/$f" "$src/$f"
-                elif [[ -f "$src/$f" ]]; then
-                    echo "  [new] $dest/$f (would be created)"
-                else
-                    echo "  [del] $dest/$f (would be deleted)"
-                fi
-            done <<<"$changed"
-        else
-            echo "         (no changes)"
+        if [[ -z "$changed" ]]; then
+            return 0
         fi
+
+        section_had_changes=true
+        emit_section_header
+        echo "  [sync] $label"
+        while IFS= read -r f; do
+            [[ -z "$f" ]] && continue
+            [[ "$f" == "./" ]] && continue
+            if [[ -f "$src/$f" ]] && [[ -f "$dest/$f" ]]; then
+                do_diff "$dest/$f" "$src/$f"
+            elif [[ -f "$src/$f" ]]; then
+                echo "    [new] $f"
+            else
+                echo "    [del] $f"
+            fi
+        done <<<"$changed"
     else
+        echo "  [sync] $src -> $dest (excluding: $*)"
         rsync "${rsync_opts[@]}" "${extra_excludes[@]}" "$src"/ "$dest"/
     fi
 }
 
 cp_file() {
-    local src="$1"
-    local dest="$2"
-    echo "  [copy] $src -> $dest"
+    local label="$1"
+    local src="$2"
+    local dest="$3"
+
     if $GLANCE; then
         if [[ -f "$dest" ]]; then
+            if cmp -s "$src" "$dest"; then
+                return 0
+            fi
+
+            section_had_changes=true
+            emit_section_header
+            echo "  [copy] $label"
             do_diff "$dest" "$src"
         else
-            echo "         (destination does not exist yet, would be created)"
+            section_had_changes=true
+            emit_section_header
+            echo "  [copy] $label"
+            echo "    [new] destination would be created"
         fi
     else
+        ensure_parent_dir "$dest"
+        echo "  [copy] $src -> $dest"
         cp -f "$src" "$dest"
     fi
 }
@@ -186,7 +258,6 @@ warnings=()
 # Read mappings from grimoire.conf
 
 current_section=""
-printed_section=""
 
 while IFS= read -r line || [[ -n "$line" ]]; do
     # Skip comments and blank lines
@@ -195,7 +266,11 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 
     # Section header
     if [[ "$line" =~ ^[[:space:]]*\[([^\]]+)\][[:space:]]*$ ]]; then
+        flush_section
         current_section="${BASH_REMATCH[1]}"
+        section_had_entries=false
+        section_had_changes=false
+        section_header_printed=false
         continue
     fi
 
@@ -241,23 +316,28 @@ while IFS= read -r line || [[ -n "$line" ]]; do
             src="$live_side"
             dest="$repo_side"
         fi
+        label="${repo_side#$REPO_ROOT/}"
+        [[ "$label" == "$repo_side" ]] && label="$repo_side"
+        section_had_entries=true
 
-        # Print section header on first entry in section
-        if [[ "$current_section" != "$printed_section" ]]; then
-            [[ -n "$printed_section" ]] && echo ""
-            echo "[$current_section]"
-            printed_section="$current_section"
-        fi
-
-        # Sync based on type (always checked against the repo side)
+        # Sync based on type. Existing repo paths define the type first.
         if [[ -d "$repo_side" ]]; then
             if [[ ${#excludes[@]} -gt 0 ]]; then
-                run_rsync_exclude "$src" "$dest" "${excludes[@]}"
+                run_rsync_exclude "$label" "$src" "$dest" "${excludes[@]}"
             else
-                run_rsync "$src" "$dest"
+                run_rsync "$label" "$src" "$dest"
             fi
         elif [[ -f "$repo_side" ]]; then
-            cp_file "$src" "$dest"
+            cp_file "$label" "$src" "$dest"
+        # For scribe, seed missing repo paths from the live side instead of skipping.
+        elif [[ "$SUBCMD" == "scribe" && -d "$live_side" ]]; then
+            if [[ ${#excludes[@]} -gt 0 ]]; then
+                run_rsync_exclude "$label" "$src" "$dest" "${excludes[@]}"
+            else
+                run_rsync "$label" "$src" "$dest"
+            fi
+        elif [[ "$SUBCMD" == "scribe" && -f "$live_side" ]]; then
+            cp_file "$label" "$src" "$dest"
         else
             warnings+=("skipped (not found in repo): $repo_side")
         fi
@@ -266,7 +346,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     fi
 done <"$REPO_ROOT/grimoire.conf"
 
-[[ -n "$printed_section" ]] && echo ""
+flush_section
 
 #####################################################################################
 # Footer
