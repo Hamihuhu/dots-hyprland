@@ -76,12 +76,13 @@ local unity_popup_titles = {
     "^(Can not).*",
     "^(Missing Project ID).*",
     "^(Inspector - Unsaved Changes Detected).*",
-    "^(Recovering Scene Backups:).*",
     "^(Cannot restructure Prefab instance).*",
     "^(The open scene(s) have been modified externally).*",
     ".*(Have Been Modified).*",
     "^(Delete).*",
     ".*(Discard).*",
+    ".*(Recovering Scene Backups).*",
+    ".*(Entering Safe Mode).*",
 }
 
 for _, t in ipairs(unity_popup_titles) do
