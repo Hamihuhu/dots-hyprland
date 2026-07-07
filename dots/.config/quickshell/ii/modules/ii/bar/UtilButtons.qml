@@ -154,5 +154,9 @@ Item {
                 }
             }
         }
+
+        ZmkSplitBatteryIndicator {
+            Layout.alignment: Qt.AlignVCenter
+        }
     }
 }

@@ -9,6 +9,7 @@ Item {
     id: root
     property bool borderless: Config.options.bar.borderless
     property bool showDate: Config.options.bar.verbose
+    property bool popupOpen: false
     implicitWidth: rowLayout.implicitWidth
     implicitHeight: Appearance.sizes.barHeight
 
@@ -44,13 +45,15 @@ Item {
         acceptedButtons: Qt.LeftButton
         onPressed: (event) => {
             if (event.button === Qt.LeftButton) {
-                GlobalStates.clockOpen = !GlobalStates.clockOpen;
+                root.popupOpen = !root.popupOpen;
             }
         }
 
         ClockWidgetPopup {
-            active: GlobalStates.clockOpen
+            active: root.popupOpen
+            closeOnFocusLost: true
             hoverTarget: mouseArea
+            onDismissed: root.popupOpen = false
         }
     }
 }

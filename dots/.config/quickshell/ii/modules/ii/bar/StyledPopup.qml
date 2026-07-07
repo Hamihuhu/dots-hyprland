@@ -1,6 +1,7 @@
 import qs.modules.common
 import qs.modules.common.widgets
 import qs.modules.common.functions
+import qs.services
 import QtQuick
 import QtQuick.Effects
 import Quickshell
@@ -12,12 +13,36 @@ LazyLoader {
     property Item hoverTarget
     default property Item contentItem
     property real popupBackgroundMargin: 0
+    property bool closeOnFocusLost: false
+
+    signal dismissed()
 
     active: hoverTarget && hoverTarget.containsMouse
 
     component: PanelWindow {
         id: popupWindow
         color: "transparent"
+
+        Component.onCompleted: {
+            if (root.closeOnFocusLost) {
+                GlobalFocusGrab.addDismissable(popupWindow);
+            }
+        }
+
+        Component.onDestruction: {
+            if (root.closeOnFocusLost) {
+                GlobalFocusGrab.removeDismissable(popupWindow);
+            }
+        }
+
+        Connections {
+            target: GlobalFocusGrab
+            function onDismissed() {
+                if (root.closeOnFocusLost) {
+                    root.dismissed();
+                }
+            }
+        }
 
         anchors.left: !Config.options.bar.vertical || (Config.options.bar.vertical && !Config.options.bar.bottom)
         anchors.right: Config.options.bar.vertical && Config.options.bar.bottom

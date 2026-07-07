@@ -235,6 +235,14 @@ ContentPage {
                     Config.options.bar.utilButtons.showScreenRecord = checked;
                 }
             }
+            ConfigSwitch {
+                buttonIcon: "battery_android_full"
+                text: Translation.tr("Split keyboard battery")
+                checked: Config.options.zmkSplitBattery.enable
+                onCheckedChanged: {
+                    Config.options.zmkSplitBattery.enable = checked;
+                }
+            }
         }
     }
 

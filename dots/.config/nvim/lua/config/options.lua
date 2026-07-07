@@ -10,3 +10,5 @@ vim.filetype.add({
     hlsl = "hlsl",
   },
 })
+
+vim.treesitter.language.register("hlsl", "shader")

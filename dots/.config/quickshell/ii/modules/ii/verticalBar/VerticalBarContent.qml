@@ -149,6 +149,16 @@ Item { // Bar content region
                 Layout.fillWidth: true
                 Layout.fillHeight: false
             }
+
+            HorizontalBarSeparator {
+                visible: zmkSplitBatteryIndicator.shouldShow
+            }
+
+            ZmkSplitBatteryIndicator {
+                id: zmkSplitBatteryIndicator
+                Layout.fillWidth: true
+                Layout.fillHeight: false
+            }
             
         }
     }

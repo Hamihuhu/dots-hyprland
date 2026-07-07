@@ -92,8 +92,9 @@ for _, t in ipairs(unity_popup_titles) do
     })
 end
 
--- Forcing all Unity windows to be on the same workspace
--- by sending them to the workspace of the Unity window with name containing "<Vulkan>"
+-- Fallback: force all Unity windows to the first Unity editor window found.
+-- This is intentionally disabled because it affects every Unity instance.
+--[[
 hl.on("window.open_early", function(window)
     if window.class == "Unity" and not window.title:find("<Vulkan>") then
         local workspace = nil
@@ -105,6 +106,64 @@ hl.on("window.open_early", function(window)
         end
         if workspace ~= nil then
             hl.dispatch(hl.dsp.window.move({ workspace = workspace, follow = false, silent = true, window = window }))
+        end
+    end
+end)
+]]
+
+-- Force Unity child windows to the workspace of the Unity editor that spawned them.
+local function get_ppid(pid)
+    local f = io.open("/proc/" .. tostring(pid) .. "/stat", "r")
+    if not f then
+        return nil
+    end
+
+    local stat = f:read("*a")
+    f:close()
+
+    local rest = stat:match("^%d+ %b() (.+)$")
+    if not rest then
+        return nil
+    end
+
+    local fields = {}
+    for x in rest:gmatch("%S+") do
+        table.insert(fields, x)
+    end
+
+    return tonumber(fields[2])
+end
+
+local function same_process_tree(child_pid, parent_pid)
+    local pid = child_pid
+    while pid and pid > 1 do
+        if pid == parent_pid then
+            return true
+        end
+        pid = get_ppid(pid)
+    end
+    return false
+end
+
+hl.on("window.open_early", function(window)
+    if window.class ~= "Unity" or window.title:find("<Vulkan>") then
+        return
+    end
+
+    for _, w in ipairs(hl.get_windows()) do
+        if w.class == "Unity"
+            and w.title:find("<Vulkan>")
+            and window.pid
+            and w.pid
+            and same_process_tree(window.pid, w.pid)
+        then
+            hl.dispatch(hl.dsp.window.move({
+                workspace = w.workspace.id,
+                follow = false,
+                silent = true,
+                window = window,
+            }))
+            return
         end
     end
 end)

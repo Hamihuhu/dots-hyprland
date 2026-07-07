@@ -17,7 +17,8 @@ set -euo pipefail
 # Uses rsync exclude syntax (e.g. "monitors.conf", "subdir/file.conf")
 IGNORED_FILES=(
     # Add files here, e.g.:
-    "monitors.lua"
+    "monitors.lua",
+    "fish_variables",
 )
 
 #####################################################################################
