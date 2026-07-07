@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# grimoire: Dotfile sync tool.
+# dotsync: Dotfile sync tool.
 #
 # Usage:
-#   ./grimoire invoke   [--glance] [--scry] [section ...]  # deploy repo -> live
-#   ./grimoire scribe   [--glance] [--scry] [section ...]  # collect live -> repo
-#   ./grimoire inscribe                                     # edit grimoire.conf
+#   ./dotsync apply   [--preview] [--diff] [section ...]  # sync repo -> live
+#   ./dotsync capture [--preview] [--diff] [section ...]  # sync live -> repo
+#   ./dotsync edit                                      # edit dotsync.conf
 #
-# Sections and mappings are defined in grimoire.conf.
+# Sections and mappings are defined in dotsync.conf.
 # If no sections are given, all sections are synced.
 
 set -euo pipefail
@@ -17,8 +17,8 @@ set -euo pipefail
 # Uses rsync exclude syntax (e.g. "monitors.conf", "subdir/file.conf")
 IGNORED_FILES=(
     # Add files here, e.g.:
-    "monitors.lua",
-    "fish_variables",
+    "monitors.lua"
+    "fish_variables"
 )
 
 #####################################################################################
@@ -34,50 +34,54 @@ SUBCMD="${1:-}"
 shift || true
 
 case "$SUBCMD" in
-invoke | scribe) ;;
-inscribe)
+apply | capture) ;;
+edit)
     editor="${EDITOR:-${VISUAL:-xdg-open}}"
-    exec "$editor" "$REPO_ROOT/grimoire.conf"
+    exec "$editor" "$REPO_ROOT/dotsync.conf"
     ;;
 "" | help | --help | -h)
-    echo "Usage: ./grimoire <invoke|scribe|inscribe> [--glance] [--scry] [section ...]"
+    echo "Usage: ./dotsync <apply|capture|edit> [--preview] [--diff] [section ...]"
     echo ""
-    echo "  invoke      Deploy repo -> live system"
-    echo "  scribe      Collect live system -> repo"
-    echo "  inscribe    Edit grimoire.conf"
+    echo "  apply       Sync repo -> live system"
+    echo "  capture     Sync live system -> repo"
+    echo "  edit        Edit dotsync.conf"
     echo ""
     echo "Flags:"
-    echo "  --glance    Preview what would change, no files touched"
-    echo "  --scry      Open diffs in your configured git difftool (implies --glance)"
+    echo "  --preview   Preview what would change, no files touched"
+    echo "  --diff      Preview changes in your configured git difftool"
     echo ""
-    echo "Sections are defined in grimoire.conf. Run './grimoire inscribe' to edit."
+    echo "Sections are defined in dotsync.conf. Run './dotsync edit' to edit."
     echo ""
     echo "Examples:"
-    echo "  ./grimoire invoke                       # deploy everything"
-    echo "  ./grimoire invoke --glance              # preview deploy"
-    echo "  ./grimoire invoke --scry                # preview with difftool"
-    echo "  ./grimoire scribe --glance quickshell   # preview quickshell collect"
-    echo "  ./grimoire scribe fish hyprland         # collect fish and hyprland"
-    echo "  ./grimoire inscribe                     # edit grimoire.conf"
+    echo "  ./dotsync apply                         # sync repo -> live"
+    echo "  ./dotsync apply --preview               # preview apply"
+    echo "  ./dotsync apply --diff                  # preview with difftool"
+    echo "  ./dotsync capture --preview quickshell  # preview quickshell capture"
+    echo "  ./dotsync capture fish hyprland         # sync live -> repo"
+    echo "  ./dotsync edit                          # edit dotsync.conf"
     exit 0
     ;;
 *)
-    echo "Error: unknown subcommand '$SUBCMD'. Use: invoke, scribe, inscribe" >&2
-    echo "Run './grimoire help' for usage." >&2
+    echo "Error: unknown subcommand '$SUBCMD'. Use: apply, capture, edit" >&2
+    echo "Run './dotsync help' for usage." >&2
     exit 1
     ;;
 esac
 
 # Parse flags and section names
-GLANCE=false
-SCRY=false
+PREVIEW=false
+DIFFTOOL=false
 SECTIONS=()
 for arg in "$@"; do
     case "$arg" in
-    --glance) GLANCE=true ;;
-    --scry)
-        SCRY=true
-        GLANCE=true
+    --preview) PREVIEW=true ;;
+    --diff)
+        DIFFTOOL=true
+        PREVIEW=true
+        ;;
+    --*)
+        echo "Error: unknown flag '$arg'. Use --preview or --diff." >&2
+        exit 1
         ;;
     *) SECTIONS+=("$arg") ;;
     esac
@@ -113,7 +117,7 @@ flush_section() {
         return 0
     fi
 
-    if $GLANCE; then
+    if $PREVIEW; then
         if ! $section_had_changes; then
             echo "[$current_section] (no changes)"
         fi
@@ -127,11 +131,41 @@ flush_section() {
 do_diff() {
     local a="$1"
     local b="$2"
-    if $SCRY; then
+    if $DIFFTOOL; then
         git difftool -y --no-index -- "$a" "$b" || true
     else
         git diff --no-index -- "$a" "$b" || true
     fi
+}
+
+preview_rsync_changes() {
+    local label="$1"
+    local src="$2"
+    local dest="$3"
+    local changed="$4"
+    local shown=false
+
+    while IFS= read -r f; do
+        [[ -z "$f" ]] && continue
+        [[ "$f" == "./" ]] && continue
+
+        if ! $shown; then
+            section_had_changes=true
+            emit_section_header
+            echo "  [sync] $label"
+            shown=true
+        fi
+
+        if [[ -f "$src/$f" ]] && [[ -f "$dest/$f" ]]; then
+            do_diff "$dest/$f" "$src/$f"
+        elif [[ -e "$src/$f" ]]; then
+            echo "    [new] $f"
+        else
+            echo "    [del] $f"
+        fi
+    done <<<"$changed"
+
+    $shown
 }
 
 run_rsync() {
@@ -139,7 +173,7 @@ run_rsync() {
     local src="$2"
     local dest="$3"
     local changed=""
-    if $GLANCE; then
+    if $PREVIEW; then
         if [[ -d "$dest" ]]; then
             changed=$(rsync -a --delete --dry-run --out-format='%n' "${exclude_args[@]}" "$src"/ "$dest"/ 2>/dev/null) || true
         else
@@ -147,21 +181,22 @@ run_rsync() {
         fi
     fi
 
-    if $GLANCE && [[ -z "$changed" ]]; then
+    if $PREVIEW && [[ -z "$changed" ]]; then
         return 0
     fi
 
-    section_had_changes=true
-    emit_section_header
-
-    if $GLANCE; then
-        echo "  [sync] $label"
+    if $PREVIEW; then
         if [[ "$changed" == "__create__" ]]; then
+            section_had_changes=true
+            emit_section_header
+            echo "  [sync] $label"
             echo "    [new] destination would be created"
         else
-            do_diff "$dest" "$src"
+            preview_rsync_changes "$label" "$src" "$dest" "$changed" || return 0
         fi
     else
+        section_had_changes=true
+        emit_section_header
         echo "  [sync] $src -> $dest"
         rsync "${rsync_opts[@]}" "$src"/ "$dest"/
     fi
@@ -185,27 +220,16 @@ run_rsync_exclude() {
         extra_excludes+=(--exclude "$p")
     done
     local changed=""
-    if $GLANCE; then
+    if $PREVIEW; then
         changed=$(rsync -a --delete --dry-run --out-format='%n' "${exclude_args[@]}" "${extra_excludes[@]}" "$src"/ "$dest"/ 2>/dev/null) || true
         if [[ -z "$changed" ]]; then
             return 0
         fi
 
+        preview_rsync_changes "$label" "$src" "$dest" "$changed" || return 0
+    else
         section_had_changes=true
         emit_section_header
-        echo "  [sync] $label"
-        while IFS= read -r f; do
-            [[ -z "$f" ]] && continue
-            [[ "$f" == "./" ]] && continue
-            if [[ -f "$src/$f" ]] && [[ -f "$dest/$f" ]]; then
-                do_diff "$dest/$f" "$src/$f"
-            elif [[ -f "$src/$f" ]]; then
-                echo "    [new] $f"
-            else
-                echo "    [del] $f"
-            fi
-        done <<<"$changed"
-    else
         echo "  [sync] $src -> $dest (excluding: $*)"
         rsync "${rsync_opts[@]}" "${extra_excludes[@]}" "$src"/ "$dest"/
     fi
@@ -216,7 +240,7 @@ cp_file() {
     local src="$2"
     local dest="$3"
 
-    if $GLANCE; then
+    if $PREVIEW; then
         if [[ -f "$dest" ]]; then
             if cmp -s "$src" "$dest"; then
                 return 0
@@ -242,12 +266,16 @@ cp_file() {
 #####################################################################################
 # Header
 
-if $GLANCE; then
-    echo "=== ${SUBCMD^^} --glance — no changes will be made. Run './grimoire $SUBCMD' to sync. ==="
-elif [[ "$SUBCMD" == "invoke" ]]; then
-    echo "=== INVOKE — deploying repo -> live ==="
+if $PREVIEW; then
+    if $DIFFTOOL; then
+        echo "=== ${SUBCMD^^} --diff — no changes will be made. Run './dotsync $SUBCMD' to sync. ==="
+    else
+        echo "=== ${SUBCMD^^} --preview — no changes will be made. Run './dotsync $SUBCMD' to sync. ==="
+    fi
+elif [[ "$SUBCMD" == "apply" ]]; then
+    echo "=== APPLY — syncing repo -> live ==="
 else
-    echo "=== SCRIBE — collecting live -> repo ==="
+    echo "=== CAPTURE — syncing live -> repo ==="
 fi
 echo ""
 
@@ -256,7 +284,7 @@ cd "$REPO_ROOT"
 warnings=()
 
 #####################################################################################
-# Read mappings from grimoire.conf
+# Read mappings from dotsync.conf
 
 current_section=""
 
@@ -310,7 +338,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
         live_side=$(eval echo "$live_side")
 
         # Set src/dest based on direction
-        if [[ "$SUBCMD" == "invoke" ]]; then
+        if [[ "$SUBCMD" == "apply" ]]; then
             src="$repo_side"
             dest="$live_side"
         else
@@ -330,14 +358,14 @@ while IFS= read -r line || [[ -n "$line" ]]; do
             fi
         elif [[ -f "$repo_side" ]]; then
             cp_file "$label" "$src" "$dest"
-        # For scribe, seed missing repo paths from the live side instead of skipping.
-        elif [[ "$SUBCMD" == "scribe" && -d "$live_side" ]]; then
+        # For capture, seed missing repo paths from the live side instead of skipping.
+        elif [[ "$SUBCMD" == "capture" && -d "$live_side" ]]; then
             if [[ ${#excludes[@]} -gt 0 ]]; then
                 run_rsync_exclude "$label" "$src" "$dest" "${excludes[@]}"
             else
                 run_rsync "$label" "$src" "$dest"
             fi
-        elif [[ "$SUBCMD" == "scribe" && -f "$live_side" ]]; then
+        elif [[ "$SUBCMD" == "capture" && -f "$live_side" ]]; then
             cp_file "$label" "$src" "$dest"
         else
             warnings+=("skipped (not found in repo): $repo_side")
@@ -345,15 +373,19 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     else
         warnings+=("skipped (bad format): $line")
     fi
-done <"$REPO_ROOT/grimoire.conf"
+done <"$REPO_ROOT/dotsync.conf"
 
 flush_section
 
 #####################################################################################
 # Footer
 
-if $GLANCE; then
-    echo "=== End of glance. Run './grimoire $SUBCMD' to sync. ==="
+if $PREVIEW; then
+    if $DIFFTOOL; then
+        echo "=== End of diff preview. Run './dotsync $SUBCMD' to sync. ==="
+    else
+        echo "=== End of preview. Run './dotsync $SUBCMD' to sync. ==="
+    fi
 else
     echo "=== Done. Review changes with: git diff --stat ==="
 fi

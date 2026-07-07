@@ -22,6 +22,12 @@ StyledPopup {
         }
 
         StyledPopupValueRow {
+            icon: ZmkSplitBattery.connected ? "check_circle" : ZmkSplitBattery.scriptRunning ? "sync" : "power_settings_new"
+            label: Translation.tr("Status:")
+            value: Translation.tr(ZmkSplitBattery.displayStatus)
+        }
+
+        StyledPopupValueRow {
             icon: "keyboard"
             label: Translation.tr("Left:")
             value: root.formatLevel(ZmkSplitBattery.leftKnown, ZmkSplitBattery.leftLevel)
@@ -34,24 +40,20 @@ StyledPopup {
         }
 
         StyledPopupValueRow {
-            visible: ZmkSplitBattery.leftKnown && ZmkSplitBattery.rightKnown
-            icon: "battery_alert"
-            label: Translation.tr("Lowest:")
-            value: `${Math.min(ZmkSplitBattery.leftLevel, ZmkSplitBattery.rightLevel)}%`
-        }
-
-        StyledPopupValueRow {
-            visible: ZmkSplitBattery.lastSeq >= 0
-            icon: "tag"
-            label: Translation.tr("Seq:")
-            value: `${ZmkSplitBattery.lastSeq}`
-        }
-
-        StyledPopupValueRow {
             visible: ZmkSplitBattery.errorText.length > 0
             icon: "error"
-            label: Translation.tr("Status:")
+            label: Translation.tr("Message:")
             value: ZmkSplitBattery.errorText
+        }
+
+        RippleButtonWithIcon {
+            visible: !ZmkSplitBattery.scriptRunning
+            Layout.fillWidth: true
+            materialIcon: "play_arrow"
+            mainText: Translation.tr("Start scanning")
+            onClicked: {
+                Config.options.zmkSplitBattery.enable = true;
+            }
         }
     }
 }

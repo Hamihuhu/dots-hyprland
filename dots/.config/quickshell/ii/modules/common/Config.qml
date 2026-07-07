@@ -294,13 +294,8 @@ Singleton {
 
             property JsonObject zmkSplitBattery: JsonObject {
                 property bool enable: true
-                property list<var> command: ["python3", Quickshell.shellPath("scripts/zmk-split-battery-mock.py")]
+                property list<var> command: ["python3", Quickshell.shellPath("scripts/zmk-split-battery.py")]
                 property int intervalMs: 60000
-                property int mockIntervalMs: 1000
-                property int mockLeftLevel: -1
-                property int mockRightLevel: -1
-                property bool mockHoldLevels: false
-                property bool mockAllowNull: false
                 property int staleAfterMs: 180000
                 property bool showWhenUnknown: false
             }

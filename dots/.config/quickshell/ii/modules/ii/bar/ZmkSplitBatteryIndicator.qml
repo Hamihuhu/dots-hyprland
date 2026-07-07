@@ -5,10 +5,9 @@ import qs.services
 MouseArea {
     id: root
 
-    readonly property bool zmkEnabled: Config.options?.zmkSplitBattery?.enable ?? true
-    readonly property bool shouldShow: zmkEnabled && ZmkSplitBattery.available && (ZmkSplitBattery.leftKnown || ZmkSplitBattery.rightKnown || ZmkSplitBattery.showWhenUnknown)
+    readonly property bool shouldShow: true
 
-    visible: shouldShow
+    visible: true
     implicitWidth: 26
     implicitHeight: 26
     hoverEnabled: !Config.options.bar.tooltips.clickToShow

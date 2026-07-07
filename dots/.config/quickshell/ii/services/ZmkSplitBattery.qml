@@ -10,32 +10,17 @@ Singleton {
 
     readonly property var serviceConfig: Config.options?.zmkSplitBattery ?? ({})
     readonly property bool enabled: serviceConfig.enable ?? true
-    readonly property var configuredCommand: serviceConfig.command ?? ["python3", Quickshell.shellPath("scripts/zmk-split-battery-mock.py")]
+    readonly property var configuredCommand: serviceConfig.command ?? ["python3", Quickshell.shellPath("scripts/zmk-split-battery.py")]
     readonly property int configuredIntervalMs: serviceConfig.intervalMs ?? 60000
-    readonly property int mockIntervalMs: serviceConfig.mockIntervalMs ?? configuredIntervalMs
-    readonly property int mockLeftLevel: serviceConfig.mockLeftLevel ?? -1
-    readonly property int mockRightLevel: serviceConfig.mockRightLevel ?? -1
-    readonly property bool mockHoldLevels: serviceConfig.mockHoldLevels ?? false
-    readonly property bool mockAllowNull: serviceConfig.mockAllowNull ?? false
     readonly property int staleAfterMs: serviceConfig.staleAfterMs ?? 180000
+    readonly property int retryAfterMs: serviceConfig.retryAfterMs ?? 5000
     readonly property bool showWhenUnknown: serviceConfig.showWhenUnknown ?? false
     readonly property string commandKey: JSON.stringify(command)
     readonly property var command: {
-        const baseCommand = Array.isArray(configuredCommand) ? configuredCommand.slice() : ["python3", Quickshell.shellPath("scripts/zmk-split-battery-mock.py")];
-        if (isMockCommand(baseCommand) && baseCommand.length === 2) {
-            baseCommand.push("--interval-ms", String(mockIntervalMs));
-            if (mockLeftLevel >= 0) {
-                baseCommand.push("--left-start", String(Math.min(100, mockLeftLevel)));
-            }
-            if (mockRightLevel >= 0) {
-                baseCommand.push("--right-start", String(Math.min(100, mockRightLevel)));
-            }
-            if (mockHoldLevels) {
-                baseCommand.push("--hold-levels");
-            }
-            if (mockAllowNull) {
-                baseCommand.push("--allow-null");
-            }
+        const baseCommand = Array.isArray(configuredCommand) ? configuredCommand.slice() : ["python3", Quickshell.shellPath("scripts/zmk-split-battery.py")];
+        if (baseCommand.length === 2 && String(baseCommand[1]).endsWith("/scripts/zmk-split-battery.py")) {
+            baseCommand.push("--json");
+            baseCommand.push("--repeat-last-ms", String(configuredIntervalMs));
         }
         return baseCommand;
     }
@@ -50,12 +35,9 @@ Singleton {
     property string errorText: ""
     property double lastUpdateMs: 0
     property bool completed: false
-
-    function isMockCommand(command) {
-        return command.length >= 2
-            && command[0] === "python3"
-            && String(command[1]).endsWith("/scripts/zmk-split-battery-mock.py");
-    }
+    readonly property bool scriptRunning: batteryProc.running
+    readonly property bool connected: available && (leftKnown || rightKnown)
+    readonly property string displayStatus: !enabled ? "Idle" : connected ? "Connected" : scriptRunning ? "Scanning" : "Idle"
 
     function resetUnavailable(reason) {
         available = false;
@@ -94,6 +76,10 @@ Singleton {
 
         try {
             const report = JSON.parse(trimmed);
+            if (report.available === false) {
+                resetUnavailable(report.error ?? "ZMK split battery dongle unavailable");
+                return;
+            }
             if (report.version !== 1 || report.peripheral_count !== 2) {
                 throw new Error("Unsupported ZMK split battery report");
             }
@@ -152,7 +138,7 @@ Singleton {
 
     Timer {
         id: restartTimer
-        interval: 100
+        interval: root.retryAfterMs
         repeat: false
         onTriggered: {
             if (root.enabled) {
@@ -182,6 +168,9 @@ Singleton {
 
         onExited: (exitCode, exitStatus) => {
             root.resetUnavailable("ZMK split battery process exited: " + exitCode);
+            if (root.enabled) {
+                restartTimer.restart();
+            }
         }
     }
 }
