@@ -42,6 +42,11 @@ hl.window_rule({
 
 -- ######## Unity Editor rules #########
 -- Unity floating dialogs (stay focused)
+hl.window_rule({
+    match = { class = "^(Unity)$", title = "^(Select).*" },
+    center = true,
+})
+
 local unity_floating_titles = {
     "^(Select).*",
     ".*(Color).*",
@@ -77,8 +82,7 @@ local unity_popup_titles = {
     "^(Missing Project ID).*",
     "^(Inspector - Unsaved Changes Detected).*",
     "^(Cannot restructure Prefab instance).*",
-    "^(The open scene(s) have been modified externally).*",
-    ".*(Have Been Modified).*",
+    ".*(have been modified).*",
     "^(Delete).*",
     ".*(Discard).*",
     ".*(Recovering Scene Backups).*",
@@ -151,7 +155,8 @@ hl.on("window.open_early", function(window)
     end
 
     for _, w in ipairs(hl.get_windows()) do
-        if w.class == "Unity"
+        if
+            w.class == "Unity"
             and w.title:find("<Vulkan>")
             and window.pid
             and w.pid
@@ -165,5 +170,17 @@ hl.on("window.open_early", function(window)
             }))
             return
         end
+    end
+end)
+
+hl.on("window.open", function(window)
+    if window.class == "Unity" and window.title:find("Select") then
+        hl.dispatch(hl.dsp.window.move({
+            workspace = window.workspace.id,
+            follow = false,
+            silent = true,
+            window = window,
+            center = true,
+        }))
     end
 end)

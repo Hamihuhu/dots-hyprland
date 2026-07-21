@@ -3,3 +3,9 @@
 -- Add any additional keymaps here
 
 local map = vim.keymap.set
+
+map("n", "<leader>dr", function()
+  vim.fn.jobstart({ "unvim-refresh", vim.fn.getcwd() }, {
+    detach = true,
+  })
+end, { desc = "Unity: refresh domain" })
