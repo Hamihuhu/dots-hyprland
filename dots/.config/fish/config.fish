@@ -24,8 +24,8 @@ if status is-interactive
     alias claer "printf '\033[2J\033[3J\033[1;1H'"
     alias pamcan pacman
     alias q 'qs -c ii'
-    if test "$TERM" != linux
-        alias ls 'eza --icons'
+    if test "$TERM" != "linux"
+        alias ls 'eza --icons=auto'
     end
     if test "$TERM" = xterm-kitty
         alias ssh 'kitten ssh'
