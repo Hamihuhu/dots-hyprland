@@ -12,7 +12,7 @@ hl.window_rule({
 
 -- Unity should remain fully opaque
 hl.window_rule({
-    match = { class = "Unity" },
+    match = { class = ".*(Unityhub-unity-editor).*" },
     opacity = "1.0 override 0.88 override",
 })
 
@@ -41,20 +41,25 @@ hl.window_rule({
 })
 
 -- ######## Unity Editor rules #########
+local function is_unity_editor(window)
+    return window.class ~= nil and window.class:find("Unityhub-unity-editor", 1, true) ~= nil
+end
+
 -- Unity floating dialogs (stay focused)
 hl.window_rule({
-    match = { class = "^(Unity)$", title = "^(Select).*" },
+    match = { class = ".*(Unityhub-unity-editor).*", title = "^(Select).*" },
     center = true,
 })
 
 local unity_floating_titles = {
     "^(Select).*",
     ".*(Color).*",
+    ".*(Assemblies).*",
 }
 
 for _, t in ipairs(unity_floating_titles) do
     hl.window_rule({
-        match = { class = "^(Unity)$", initial_title = t },
+        match = { class = ".*(Unityhub-unity-editor).*", initial_title = t },
         stay_focused = true,
     })
 end
@@ -68,7 +73,7 @@ local unity_tooltip_titles = {
 
 for _, t in ipairs(unity_tooltip_titles) do
     hl.window_rule({
-        match = { class = "^(Unity)$", title = t },
+        match = { class = ".*(Unityhub-unity-editor).*", title = t },
         no_initial_focus = true,
         no_focus = true,
     })
@@ -83,15 +88,17 @@ local unity_popup_titles = {
     "^(Inspector - Unsaved Changes Detected).*",
     "^(Cannot restructure Prefab instance).*",
     ".*(have been modified).*",
+    ".*(Have Been Modified).*",
     "^(Delete).*",
     ".*(Discard).*",
     ".*(Recovering Scene Backups).*",
     ".*(Entering Safe Mode).*",
+    ".*(Assemblies).*",
 }
 
 for _, t in ipairs(unity_popup_titles) do
     hl.window_rule({
-        match = { class = "^(Unity)$", initial_title = t },
+        match = { class = ".*(Unityhub-unity-editor).*", initial_title = t },
         center = true,
     })
 end
@@ -100,10 +107,10 @@ end
 -- This is intentionally disabled because it affects every Unity instance.
 --[[
 hl.on("window.open_early", function(window)
-    if window.class == "Unity" and not window.title:find("<Vulkan>") then
+    if is_unity_editor(window) and not window.title:find("<Vulkan>") then
         local workspace = nil
         for _, w in ipairs(hl.get_windows()) do
-            if w.class == "Unity" and w.title:find("<Vulkan>") then
+            if is_unity_editor(w) and w.title:find("<Vulkan>") then
                 workspace = w.workspace.id
                 break
             end
@@ -149,38 +156,38 @@ local function same_process_tree(child_pid, parent_pid)
     return false
 end
 
-hl.on("window.open_early", function(window)
-    if window.class ~= "Unity" or window.title:find("<Vulkan>") then
-        return
-    end
-
-    for _, w in ipairs(hl.get_windows()) do
-        if
-            w.class == "Unity"
-            and w.title:find("<Vulkan>")
-            and window.pid
-            and w.pid
-            and same_process_tree(window.pid, w.pid)
-        then
-            hl.dispatch(hl.dsp.window.move({
-                workspace = w.workspace.id,
-                follow = false,
-                silent = true,
-                window = window,
-            }))
-            return
-        end
-    end
-end)
-
-hl.on("window.open", function(window)
-    if window.class == "Unity" and window.title:find("Select") then
-        hl.dispatch(hl.dsp.window.move({
-            workspace = window.workspace.id,
-            follow = false,
-            silent = true,
-            window = window,
-            center = true,
-        }))
-    end
-end)
+-- hl.on("window.open_early", function(window)
+--     if not is_unity_editor(window) or window.title:find("<Vulkan>") then
+--         return
+--     end
+--
+--     for _, w in ipairs(hl.get_windows()) do
+--         if
+--             is_unity_editor(w)
+--             and w.title:find("<Vulkan>")
+--             and window.pid
+--             and w.pid
+--             and same_process_tree(window.pid, w.pid)
+--         then
+--             hl.dispatch(hl.dsp.window.move({
+--                 workspace = w.workspace.id,
+--                 follow = false,
+--                 silent = true,
+--                 window = window,
+--             }))
+--             return
+--         end
+--     end
+-- end)
+--
+-- hl.on("window.open", function(window)
+--     if is_unity_editor(window) and window.title:find("Select") then
+--         hl.dispatch(hl.dsp.window.move({
+--             workspace = window.workspace.id,
+--             follow = false,
+--             silent = true,
+--             window = window,
+--             center = true,
+--         }))
+--     end
+-- end)
