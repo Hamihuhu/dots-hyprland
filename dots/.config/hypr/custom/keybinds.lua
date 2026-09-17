@@ -45,6 +45,23 @@ hl.unbind("SUPER + Down")
 hl.unbind("SUPER + BracketLeft")
 hl.unbind("SUPER + BracketRight")
 
+-- Replace workspace arrow bindings with Vim-style keys
+hl.unbind("CTRL + SUPER + Left")
+hl.unbind("CTRL + SUPER + Right")
+hl.unbind("CTRL + SUPER + Up")
+hl.unbind("CTRL + SUPER + Down")
+
+local workspace_keys = { "H", "L" }
+local workspace_targets = { "r-1", "r+1" }
+for i = 1, 2 do
+    hl.bind("CTRL + SUPER + " .. workspace_keys[i], hl.dsp.focus({ workspace = workspace_targets[i] }))
+end
+
+-- Send the active window to the previous/next workspace
+for i = 1, 2 do
+    hl.bind("SUPER + ALT + " .. workspace_keys[i], hl.dsp.window.move({ workspace = workspace_targets[i] }))
+end
+
 -- Unbind move in direction
 hl.unbind("SUPER + SHIFT + Left")
 hl.unbind("SUPER + SHIFT + Right")
@@ -64,6 +81,6 @@ for i = 1, 4 do
     hl.bind("SUPER + SHIFT + " .. arrowkey[i], hl.dsp.window.move({ direction = focusdir[i] }))
 end
 
-hl.bind("SUPER + SHIFT + L", hl.dsp.exec_cmd("loginctl lock-session"), { description = "Lock" })
 hl.bind("SUPER + O", hl.dsp.layout("splitratio +0.1"), { repeating = true })
 hl.bind("SUPER + X", hl.dsp.window.close(), { description = "Close" })
+hl.bind("CTRL + SHIFT + ALT + SUPER + L", hl.dsp.exec_cmd("loginctl lock-session"), { description = "Session: Lock" }) -- # [hidden] Power off

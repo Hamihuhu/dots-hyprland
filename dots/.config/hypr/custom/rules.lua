@@ -12,7 +12,7 @@ hl.window_rule({
 
 -- Unity should remain fully opaque
 hl.window_rule({
-    match = { class = ".*(Unityhub-unity-editor).*" },
+    match = { class = ".*(Unity).*" },
     opacity = "1.0 override 0.88 override",
 })
 
@@ -42,12 +42,12 @@ hl.window_rule({
 
 -- ######## Unity Editor rules #########
 local function is_unity_editor(window)
-    return window.class ~= nil and window.class:find("Unityhub-unity-editor", 1, true) ~= nil
+    return window.class ~= nil and window.class:find("Unity", 1, true) ~= nil
 end
 
 -- Unity floating dialogs (stay focused)
 hl.window_rule({
-    match = { class = ".*(Unityhub-unity-editor).*", title = "^(Select).*" },
+    match = { class = ".*(Unity).*", title = "^(Select).*" },
     center = true,
 })
 
@@ -55,11 +55,18 @@ local unity_floating_titles = {
     "^(Select).*",
     ".*(Color).*",
     ".*(Assemblies).*",
+    ".*(Areas).*",
 }
 
 for _, t in ipairs(unity_floating_titles) do
     hl.window_rule({
-        match = { class = ".*(Unityhub-unity-editor).*", initial_title = t },
+        match = { class = ".*(Unity).*", initial_title = t },
+        stay_focused = true,
+    })
+end
+for _, t in ipairs(unity_floating_titles) do
+    hl.window_rule({
+        match = { class = ".*(Unity).*", title = t },
         stay_focused = true,
     })
 end
@@ -73,7 +80,7 @@ local unity_tooltip_titles = {
 
 for _, t in ipairs(unity_tooltip_titles) do
     hl.window_rule({
-        match = { class = ".*(Unityhub-unity-editor).*", title = t },
+        match = { class = ".*(Unity).*", title = t },
         no_initial_focus = true,
         no_focus = true,
     })
@@ -98,11 +105,17 @@ local unity_popup_titles = {
 
 for _, t in ipairs(unity_popup_titles) do
     hl.window_rule({
-        match = { class = ".*(Unityhub-unity-editor).*", initial_title = t },
+        match = { class = ".*(Unity).*", initial_title = t },
         center = true,
     })
 end
 
+for _, t in ipairs(unity_popup_titles) do
+    hl.window_rule({
+        match = { class = ".*(Unity).*", title = t },
+        center = true,
+    })
+end
 -- Fallback: force all Unity windows to the first Unity editor window found.
 -- This is intentionally disabled because it affects every Unity instance.
 --[[
